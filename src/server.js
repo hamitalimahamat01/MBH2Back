@@ -14,55 +14,40 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Configuration CORS complète - Accepter toutes les origines pour le test
-const allowedOrigins = [
-  'https://mbh2front.onrender.com',
-  'https://mbh2.onrender.com',
-  'http://localhost:5173',
-  'http://localhost:3000'
-];
+// Configuration CORS
+const corsOptions = {
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://mbh2front.onrender.com', 'https://mbh2.onrender.com'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+};
 
-app.use(cors({
-  origin: function(origin, callback) {
-    // Permettre les requêtes sans origine (comme les appels API directs)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
-      callback(null, true);
-    } else {
-      console.log('❌ Origine bloquée par CORS:', origin);
-      callback(null, true); // Accepter temporairement toutes les origines pour test
-    }
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-  credentials: true,
-  optionsSuccessStatus: 200
-}));
-
-// Socket.IO avec CORS
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST'],
-    credentials: true
-  },
-  transports: ['polling', 'websocket']
-});
-
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Socket.IO
+const io = new Server(server, {
+  cors: {
+    origin: ['http://localhost:5173', 'https://mbh2front.onrender.com'],
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
+// Logger
+app.use((req, res, next) => {
+  console.log(`📡 ${req.method} ${req.url}`);
+  next();
+});
 
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api', beneficiaireRoutes);
 app.use('/api', coordinationRoutes);
 
-// Route de test CORS
-app.options('*', cors());
-app.get('/api/test-cors', (req, res) => {
-  res.json({ message: 'CORS fonctionne!', timestamp: new Date().toISOString() });
-});
-
+// Routes de santé
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', message: 'AideChain API fonctionne' });
 });
@@ -78,11 +63,10 @@ app.get('/', (req, res) => {
 app.set('io', io);
 
 io.on('connection', (socket) => {
-  console.log(`🔌 Client connecté: ${socket.id}`);
-  socket.emit('connected', { message: 'Connecté à AideChain WebSocket' });
-  
+  console.log(`🔌 Client connecte: ${socket.id}`);
+  socket.emit('connected', { message: 'Connecte a AideChain WebSocket' });
   socket.on('disconnect', () => {
-    console.log(`🔌 Client déconnecté: ${socket.id}`);
+    console.log(`🔌 Client deconnecte: ${socket.id}`);
   });
 });
 
@@ -98,18 +82,18 @@ async function start() {
       console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
-║   🚀 AideChain API - Équipe TD-02                         ║
+║   🚀 AideChain API - Equipe TD-02                         ║
 ║                                                           ║
-║   📡 Serveur: https://mbh2.onrender.com                   ║
-║   🔗 API: https://mbh2.onrender.com/api                   ║
-║                                                           ║
-║   ✅ CORS activé pour toutes les origines                 ║
+║   📡 Serveur: http://localhost:${PORT}                      ║
+║   🔗 API: http://localhost:${PORT}/api                      ║
+║   🔐 Auth: http://localhost:${PORT}/api/auth                ║
+║   🔌 WebSocket: ws://localhost:${PORT}                      ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
       `);
     });
   } catch (error) {
-    console.error('❌ Erreur au démarrage:', error);
+    console.error('❌ Erreur au demarrage:', error);
     process.exit(1);
   }
 }

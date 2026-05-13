@@ -6,7 +6,7 @@ import config from '../config/index.js';
 
 export class AuthService {
   async hashPassword(password) {
-    return bcrypt.hash(password, config.bcryptRounds);
+    return bcrypt.hash(password, config.bcryptRounds || 10);
   }
 
   async verifyPassword(password, hash) {
@@ -23,7 +23,7 @@ export class AuthService {
         statut: organisation.statut
       },
       config.jwtSecret,
-      { expiresIn: config.jwtExpiry }
+      { expiresIn: config.jwtExpiry || '24h' }
     );
   }
 
@@ -33,6 +33,10 @@ export class AuthService {
     } catch (error) {
       return null;
     }
+  }
+
+  async findByEmail(email) {
+    return Organisation.findByEmail(email);
   }
 
   async register(data) {
@@ -91,6 +95,10 @@ export class AuthService {
 
   async getAllOrganisations() {
     return Organisation.findAll(true);
+  }
+
+  async updateProfile(id, data) {
+    return Organisation.updateProfile(id, data);
   }
 }
 

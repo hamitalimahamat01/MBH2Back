@@ -191,7 +191,6 @@ router.get('/google/callback', async (req, res) => {
   }
   
   try {
-    // Echange du code contre un token
     const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
@@ -203,7 +202,6 @@ router.get('/google/callback', async (req, res) => {
     console.log('✅ Token obtenu');
     const { access_token } = tokenResponse.data;
     
-    // Recupere les infos utilisateur
     const userResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${access_token}` }
     });
@@ -211,7 +209,6 @@ router.get('/google/callback', async (req, res) => {
     const { email, name } = userResponse.data;
     console.log('👤 Utilisateur Google:', { email, name });
     
-    // Cherche ou cree l'organisation
     let organisation = await authService.findByEmail(email);
     
     if (!organisation) {
@@ -227,7 +224,6 @@ router.get('/google/callback', async (req, res) => {
     const token = authService.generateToken(organisation);
     console.log('✅ Auth reussie, redirection vers:', `${frontendUrl}/auth/callback`);
     
-    // Redirige vers le frontend avec le token
     res.redirect(`${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(organisation))}`);
     
   } catch (error) {

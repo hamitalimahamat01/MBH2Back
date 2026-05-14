@@ -36,7 +36,7 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({ 
   storage, 
-  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB max
+  limits: { fileSize: 2 * 1024 * 1024 },
   fileFilter
 });
 
@@ -170,48 +170,52 @@ router.get('/me', authenticate, async (req, res) => {
 
 // ========== GOOGLE OAUTH ==========
 
+// Route pour initier la connexion Google
 router.get('/google', (req, res) => {
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || 
-    (process.env.NODE_ENV === 'production' 
-      ? 'https://mbh2.onrender.com/api/auth/google/callback'
-      : 'http://localhost:3000/api/auth/google/callback');
-  
+  const redirectUri = 'https://mbh2.onrender.com/api/auth/google/callback';
   const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=email%20profile`;
+  console.log('🔐 Google Auth - Redirect URI:', redirectUri);
   res.redirect(googleAuthUrl);
 });
 
+// Route de callback Google
 router.get('/google/callback', async (req, res) => {
   const { code } = req.query;
-  const frontendUrl = process.env.FRONTEND_URL || 
-    (process.env.NODE_ENV === 'production' 
-      ? 'https://mbh2front.onrender.com'
-      : 'http://localhost:5173');
+  const frontendUrl = 'https://mbh2front.onrender.com';
+  
+  console.log('📞 Google Callback reçu, code:', !!code);
   
   if (!code) {
+    console.error('❌ Pas de code dans la requete');
     return res.redirect(`${frontendUrl}/login?error=no_code`);
   }
   
   try {
+    // Echange du code contre un token
     const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: process.env.GOOGLE_REDIRECT_URI || 
-        (process.env.NODE_ENV === 'production' 
-          ? 'https://mbh2.onrender.com/api/auth/google/callback'
-          : 'http://localhost:3000/api/auth/google/callback'),
+      redirect_uri: 'https://mbh2.onrender.com/api/auth/google/callback',
       grant_type: 'authorization_code'
     });
     
+    console.log('✅ Token obtenu');
     const { access_token } = tokenResponse.data;
+    
+    // Recupere les infos utilisateur
     const userResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${access_token}` }
     });
     
     const { email, name } = userResponse.data;
+    console.log('👤 Utilisateur Google:', { email, name });
+    
+    // Cherche ou cree l'organisation
     let organisation = await authService.findByEmail(email);
     
     if (!organisation) {
+      console.log('📝 Creation nouvelle organisation pour:', email);
       organisation = await authService.register({
         nom: name || email.split('@')[0],
         nomComplet: name || email.split('@')[0],
@@ -221,10 +225,13 @@ router.get('/google/callback', async (req, res) => {
     }
     
     const token = authService.generateToken(organisation);
+    console.log('✅ Auth reussie, redirection vers:', `${frontendUrl}/auth/callback`);
+    
+    // Redirige vers le frontend avec le token
     res.redirect(`${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(organisation))}`);
     
   } catch (error) {
-    console.error('Google auth error:', error);
+    console.error('❌ Erreur Google auth:', error.response?.data || error.message);
     res.redirect(`${frontendUrl}/login?error=google_auth_failed`);
   }
 });

@@ -22,7 +22,9 @@ export class Organisation {
   static async findById(id) {
     const db = getDb();
     const result = await db.execute({
-      sql: 'SELECT id, nom, nom_complet, type, pays, email, statut, beneficiaires_count, actions_count, created_at FROM organisations WHERE id = ?',
+      sql: `SELECT id, nom, nom_complet, type, pays, email, statut, beneficiaires_count, actions_count, 
+                    created_at, telephone, site_web, adresse, description, date_creation, photo
+             FROM organisations WHERE id = ?`,
       args: [id]
     });
     return result.rows[0];
@@ -30,7 +32,8 @@ export class Organisation {
 
   static async findAll(onlyActive = true) {
     const db = getDb();
-    let sql = 'SELECT id, nom, nom_complet, type, pays, email, statut, beneficiaires_count, actions_count FROM organisations';
+    let sql = `SELECT id, nom, nom_complet, type, pays, email, statut, beneficiaires_count, actions_count, photo
+               FROM organisations`;
     if (onlyActive) {
       sql += " WHERE statut = 'ACTIVE'";
     }
@@ -68,7 +71,7 @@ export class Organisation {
     const fields = [];
     const values = [];
     
-    const allowedFields = ['nom', 'nom_complet', 'type', 'pays', 'telephone', 'site_web', 'adresse', 'description'];
+    const allowedFields = ['nom', 'nom_complet', 'type', 'pays', 'telephone', 'site_web', 'adresse', 'description', 'date_creation', 'photo'];
     for (const [key, value] of Object.entries(data)) {
       if (allowedFields.includes(key) && value !== undefined) {
         fields.push(`${key} = ?`);

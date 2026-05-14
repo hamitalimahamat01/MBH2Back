@@ -3,11 +3,16 @@ import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { initializeDatabase } from './database/sqlite.js';
 import beneficiaireRoutes from './routes/beneficiaireRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import coordinationRoutes from './routes/coordinationRoutes.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -26,6 +31,9 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serveur les fichiers statiques (uploads)
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Socket.IO
 const io = new Server(server, {

@@ -1,9 +1,44 @@
 import { Router } from 'express';
 import axios from 'axios';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { AuthService } from '../services/authService.js';
+import { getDb } from '../database/sqlite.js';
 
 const router = Router();
 const authService = new AuthService();
+
+// Configuration multer pour l'upload de photos
+const uploadDir = './uploads';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname);
+    cb(null, uniqueName);
+  }
+});
+
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/gif', 'image/webp'];
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Type de fichier non supporte'), false);
+  }
+};
+
+const upload = multer({ 
+  storage, 
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB max
+  fileFilter
+});
 
 export const authenticate = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
@@ -63,12 +98,51 @@ router.get('/verify', authenticate, async (req, res) => {
 // Mise a jour profil
 router.put('/profile', authenticate, async (req, res) => {
   try {
-    const { nom, nomComplet, type, pays, telephone, siteWeb, adresse, description } = req.body;
-    const updated = await authService.updateProfile(req.user.id, {
-      nom, nom_complet: nomComplet, type, pays, telephone, site_web: siteWeb, adresse, description
+    const { nom, nomComplet, type, pays, telephone, siteWeb, adresse, description, dateCreation, photoUrl } = req.body;
+    const db = getDb();
+    
+    await db.execute({
+      sql: `UPDATE organisations SET 
+        nom = COALESCE(?, nom),
+        nom_complet = COALESCE(?, nom_complet),
+        type = COALESCE(?, type),
+        pays = COALESCE(?, pays),
+        telephone = COALESCE(?, telephone),
+        site_web = COALESCE(?, site_web),
+        adresse = COALESCE(?, adresse),
+        description = COALESCE(?, description),
+        date_creation = COALESCE(?, date_creation),
+        photo = COALESCE(?, photo)
+      WHERE id = ?`,
+      args: [nom, nomComplet, type, pays, telephone, siteWeb, adresse, description, dateCreation, photoUrl, req.user.id]
     });
+    
+    const updated = await authService.getOrganisationById(req.user.id);
     res.json({ success: true, message: 'Profil mis a jour', organisation: updated });
   } catch (error) {
+    console.error('Erreur profil:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Upload photo de profil
+router.post('/upload-photo', authenticate, upload.single('photo'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Aucun fichier uploade' });
+    }
+    
+    const photoUrl = `/uploads/${req.file.filename}`;
+    const db = getDb();
+    
+    await db.execute({
+      sql: 'UPDATE organisations SET photo = ? WHERE id = ?',
+      args: [photoUrl, req.user.id]
+    });
+    
+    res.json({ success: true, message: 'Photo uploadee avec succes', url: photoUrl });
+  } catch (error) {
+    console.error('Erreur upload photo:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -83,9 +157,19 @@ router.get('/organisations', authenticate, async (req, res) => {
   }
 });
 
+// Route pour recuperer les infos de l'organisation connectee
+router.get('/me', authenticate, async (req, res) => {
+  try {
+    const organisation = await authService.getOrganisationById(req.user.id);
+    if (!organisation) return res.status(404).json({ success: false, message: 'Organisation non trouvee' });
+    res.json({ success: true, organisation });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ========== GOOGLE OAUTH ==========
 
-// Route pour initier la connexion Google
 router.get('/google', (req, res) => {
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || 
     (process.env.NODE_ENV === 'production' 
@@ -93,12 +177,9 @@ router.get('/google', (req, res) => {
       : 'http://localhost:3000/api/auth/google/callback');
   
   const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=email%20profile`;
-  
-  console.log('🔐 Google Auth - Redirect URI:', redirectUri);
   res.redirect(googleAuthUrl);
 });
 
-// Route de callback apres authentification Google
 router.get('/google/callback', async (req, res) => {
   const { code } = req.query;
   const frontendUrl = process.env.FRONTEND_URL || 
@@ -106,16 +187,11 @@ router.get('/google/callback', async (req, res) => {
       ? 'https://mbh2front.onrender.com'
       : 'http://localhost:5173');
   
-  console.log('🔐 Google Callback - Code reçu:', !!code);
-  console.log('🔐 Frontend URL:', frontendUrl);
-  
   if (!code) {
-    console.error('❌ Pas de code dans la requete');
     return res.redirect(`${frontendUrl}/login?error=no_code`);
   }
   
   try {
-    // Echange du code contre un token
     const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
@@ -127,22 +203,15 @@ router.get('/google/callback', async (req, res) => {
       grant_type: 'authorization_code'
     });
     
-    console.log('✅ Token obtenu');
     const { access_token } = tokenResponse.data;
-    
-    // Recupere les infos utilisateur
     const userResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${access_token}` }
     });
     
     const { email, name } = userResponse.data;
-    console.log('👤 Utilisateur Google:', { email, name });
-    
-    // Cherche ou cree l'organisation
     let organisation = await authService.findByEmail(email);
     
     if (!organisation) {
-      console.log('📝 Creation nouvelle organisation pour:', email);
       organisation = await authService.register({
         nom: name || email.split('@')[0],
         nomComplet: name || email.split('@')[0],
@@ -152,14 +221,11 @@ router.get('/google/callback', async (req, res) => {
     }
     
     const token = authService.generateToken(organisation);
-    console.log('✅ Authentification reussie, redirection vers:', `${frontendUrl}/auth/callback`);
-    
-    // Redirige vers le frontend avec le token
     res.redirect(`${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(organisation))}`);
     
   } catch (error) {
-    console.error('❌ Erreur Google auth:', error.response?.data || error.message);
-    res.redirect(`${frontendUrl}/login?error=google_auth_failed&details=${encodeURIComponent(error.message)}`);
+    console.error('Google auth error:', error);
+    res.redirect(`${frontendUrl}/login?error=google_auth_failed`);
   }
 });
 
